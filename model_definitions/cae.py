@@ -5,14 +5,14 @@ from keras.callbacks import TensorBoard, ModelCheckpoint, EarlyStopping
 import matplotlib.pyplot as plt
 import os
 
+from model_definitions.base import BaseModel
 
-class ConvolutionalAutoencoder:
-    """A Convolutional Autoencoder (CAE) implemented in TensorFlow/Keras."""
 
+class ConvolutionalAutoencoder(BaseModel):
     def __init__(self, input_shape=(28, 28, 1), encoder_filters=None, decoder_filters=None,
                  kernel_size=(3, 3), pooling_size=(2, 2), upsampling_size=(2, 2),
                  activation='relu', initializer='glorot_uniform'):
-        """Initialize the CAE with the given configuration."""
+        super().__init__(input_shape)
         if decoder_filters is None:
             decoder_filters = [64, 32]
         if encoder_filters is None:
@@ -29,7 +29,7 @@ class ConvolutionalAutoencoder:
         self.activation = activation
         self.initializer = initializer
 
-        self.autoencoder = self.build_autoencoder()
+        self.model = self.build_autoencoder()
 
     def build_encoder(self, x):
         """Build the encoder portion of the autoencoder."""
@@ -57,9 +57,10 @@ class ConvolutionalAutoencoder:
 
     def compile(self, optimizer='adam', loss='binary_crossentropy'):
         """Compile the autoencoder model."""
-        self.autoencoder.compile(optimizer=optimizer, loss=loss)
+        self.model.compile(optimizer=optimizer, loss=loss)
 
-    def fit(self, x_train, x_val, epochs=50, batch_size=256, verbose=1, callbacks=None, plot_metrics=True, log_dir='./logs'):
+    def fit(self, x_train, x_val, epochs=50, batch_size=256, verbose=1, callbacks=None, plot_metrics=True,
+            log_dir='./logs'):
         """Fit the autoencoder model to the training data."""
         # Set up logging and callbacks
         if not os.path.exists(log_dir):
@@ -104,46 +105,44 @@ class ConvolutionalAutoencoder:
             plt.show()
 
     def predict(self, x_test):
-        """Predict the output of the autoencoder model."""
-        return self.autoencoder.predict(x_test)
+        return self.model.predict(x_test)
 
     def evaluate(self, x_test):
         """Evaluate the autoencoder model."""
-        return self.autoencoder.evaluate(x_test, x_test)
+        return self.model.evaluate(x_test, x_test)
 
     def summary(self):
         """Print the summary of the autoencoder model."""
-        self.autoencoder.summary()
+        self.model.summary()
 
     def save_model(self, model_path):
         """Save the autoencoder model."""
-        self.autoencoder.save(model_path)
+        self.model.save(model_path)
 
     def save_weights(self, model_path):
         """Save the autoencoder model weights."""
-        self.autoencoder.save_weights(model_path)
+        self.model.save_weights(model_path)
 
     def load_model(self, model_path):
         """Load the autoencoder model."""
-        self.autoencoder = tf.keras.models.load_model(model_path)
+        self.model = tf.keras.models.load_model(model_path)
 
     def load_weights(self, model_path):
         """Load the autoencoder model weights."""
-        self.autoencoder.load_weights(model_path)
+        self.model.load_weights(model_path)
 
     def get_encoder(self):
         """Return the encoder model with the currently loaded weights."""
         if self.autoencoder is None:
             raise ValueError("No weights have been loaded. Load weights before extracting the encoder architecture.")
-        encoder = Model(self.autoencoder.input, self.autoencoder.layers[len(self.encoder_filters)*2 - 1].output)
+        encoder = Model(self.model.input, self.model.layers[len(self.encoder_filters) * 2 - 1].output)
         return encoder
 
     def get_encoder_arch(self, model_path):
         """Return the encoder model with the currently loaded weights."""
         encoder = tf.keras.models.load_model(model_path)
-        encoder = Model(encoder.input, encoder.layers[len(self.encoder_filters)*2 - 1].output)
+        encoder = Model(encoder.input, encoder.layers[len(self.encoder_filters) * 2 - 1].output)
         return encoder
-
 
 # Usage:
 # cae = ConvolutionalAutoencoder()
