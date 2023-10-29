@@ -1,4 +1,7 @@
-from tensorflow.keras.layers import Flatten, Dense
+from keras import Input, Model
+from keras.layers import Flatten, Dense
+from keras.src.layers import Conv2D, MaxPooling2D
+
 
 class ConvolutionalNeuralNetwork:
     """A Convolutional Neural Network (CNN) implemented in TensorFlow/Keras."""
