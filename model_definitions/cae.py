@@ -1,10 +1,6 @@
 import tensorflow as tf
 from keras.layers import Conv2D, MaxPooling2D, UpSampling2D, Input
 from keras.models import Model
-from keras.callbacks import TensorBoard, ModelCheckpoint, EarlyStopping
-import matplotlib.pyplot as plt
-import os
-
 from model_definitions.base import BaseModel
 
 
@@ -12,6 +8,19 @@ class ConvolutionalAutoencoder(BaseModel):
     def __init__(self, input_shape=(28, 28, 1), encoder_filters=None, decoder_filters=None,
                  kernel_size=(3, 3), pooling_size=(2, 2), upsampling_size=(2, 2),
                  activation='relu', initializer='glorot_uniform'):
+        """
+        Initialize the ConvolutionalAutoencoder with the given parameters.
+        :param input_shape: Tuple specifying the shape of input data, default is (28, 28, 1).
+        :param encoder_filters: List of integers specifying the number of filters for each Conv2D layer in the encoder,
+                                default is [32, 64].
+        :param decoder_filters: List of integers specifying the number of filters for each Conv2D layer in the decoder,
+                                default is [64, 32].
+        :param kernel_size: Tuple specifying the kernel size for Conv2D layers, default is (3, 3).
+        :param pooling_size: Tuple specifying the pool size for MaxPooling2D layers, default is (2, 2).
+        :param upsampling_size: Tuple specifying the size for UpSampling2D layers, default is (2, 2).
+        :param activation: Activation function to use, default is 'relu'.
+        :param initializer: Initializer for the kernel weights, default is 'glorot_uniform'.
+        """
         super().__init__(input_shape)
         if decoder_filters is None:
             decoder_filters = [64, 32]
@@ -20,7 +29,6 @@ class ConvolutionalAutoencoder(BaseModel):
         if len(input_shape) != 3:
             raise ValueError("Input shape should have three dimensions (height, width, channels).")
 
-        self.input_shape = input_shape
         self.encoder_filters = encoder_filters
         self.decoder_filters = decoder_filters
         self.kernel_size = kernel_size
@@ -32,7 +40,11 @@ class ConvolutionalAutoencoder(BaseModel):
         self.model = self.build_autoencoder()
 
     def build_encoder(self, x):
-        """Build the encoder portion of the autoencoder."""
+        """
+        Build the encoder portion of the autoencoder.
+        :param x: Input tensor.
+        :return: Tensor representing the encoded features.
+        """
         for filters in self.encoder_filters:
             x = Conv2D(filters, self.kernel_size, activation=self.activation,
                        padding='same', kernel_initializer=self.initializer)(x)
@@ -40,7 +52,11 @@ class ConvolutionalAutoencoder(BaseModel):
         return x
 
     def build_decoder(self, x):
-        """Build the decoder portion of the autoencoder."""
+        """
+        Build the decoder portion of the autoencoder.
+        :param x: Encoded input tensor.
+        :return: Tensor representing the decoded output.
+        """
         for filters in reversed(self.decoder_filters):
             x = Conv2D(filters, self.kernel_size, activation=self.activation,
                        padding='same', kernel_initializer=self.initializer)(x)
@@ -48,103 +64,43 @@ class ConvolutionalAutoencoder(BaseModel):
         return x
 
     def build_autoencoder(self):
-        """Build the autoencoder using the encoder and decoder."""
+        """
+        Build the autoencoder using the encoder and decoder.
+        :return: Autoencoder model.
+        """
         input_img = Input(shape=self.input_shape)
         encoded = self.build_encoder(input_img)
         decoded = self.build_decoder(encoded)
         autoencoder = Model(input_img, decoded)
         return autoencoder
 
-    def compile(self, optimizer='adam', loss='binary_crossentropy'):
-        """Compile the autoencoder model."""
-        self.model.compile(optimizer=optimizer, loss=loss)
-
-    def fit(self, x_train, x_val, epochs=50, batch_size=256, verbose=1, callbacks=None, plot_metrics=True,
-            log_dir='./logs'):
-        """Fit the autoencoder model to the training data."""
-        # Set up logging and callbacks
-        if not os.path.exists(log_dir):
-            os.makedirs(log_dir)
-
-        tensorboard = TensorBoard(log_dir=log_dir, histogram_freq=1)
-        checkpoint = ModelCheckpoint(filepath=os.path.join(log_dir, 'model_best_weights.h5'),
-                                     save_best_only=True, save_weights_only=True)
-        early_stopping = EarlyStopping(patience=10)
-
-        default_callbacks = [tensorboard, checkpoint, early_stopping]
-        if callbacks:
-            default_callbacks.extend(callbacks)
-
-        # Train the model
-        history = self.autoencoder.fit(x_train, x_train, epochs=epochs, batch_size=batch_size, shuffle=True,
-                                       validation_data=(x_val, x_val), verbose=verbose, callbacks=default_callbacks)
-
-        # Optionally plot training metrics
-        if plot_metrics:
-            self.plot_metrics(history, log_dir)
-
-        return history
-
-    def plot_metrics(self, history, log_dir, show=True, save=True):
-        """Plot training and validation metrics."""
-        fig, axs = plt.subplots(1, 2, figsize=(12, 6))
-
-        # Plot training & validation loss values
-        axs[0].plot(history.history['loss'])
-        axs[0].plot(history.history['val_loss'])
-        axs[0].set_title('Model loss')
-        axs[0].set_ylabel('Loss')
-        axs[0].set_xlabel('Epoch')
-        axs[0].legend(['Train', 'Validation'], loc='upper left')
-
-        # Save or display the plot
-        plot_path = os.path.join(log_dir, 'training_metrics.png')
-        if save:
-            plt.savefig(plot_path)
-        if show:
-            plt.show()
-
-    def predict(self, x_test):
-        return self.model.predict(x_test)
-
-    def evaluate(self, x_test):
-        """Evaluate the autoencoder model."""
-        return self.model.evaluate(x_test, x_test)
-
-    def summary(self):
-        """Print the summary of the autoencoder model."""
-        self.model.summary()
-
-    def save_model(self, model_path):
-        """Save the autoencoder model."""
-        self.model.save(model_path)
-
-    def save_weights(self, model_path):
-        """Save the autoencoder model weights."""
-        self.model.save_weights(model_path)
-
-    def load_model(self, model_path):
-        """Load the autoencoder model."""
-        self.model = tf.keras.models.load_model(model_path)
-
-    def load_weights(self, model_path):
-        """Load the autoencoder model weights."""
-        self.model.load_weights(model_path)
+    def fit(self, x_train, y_train, x_val=None, y_val=None, epochs=50, batch_size=256, verbose=1,
+            callbacks=None, plot=True, log_dir='./logs', experiment_name='experiment'):
+        """
+        Fit the autoencoder model to the training data.
+        :param x_train: Training data.
+        :param x_val: Validation data.
+        :param epochs: Number of epochs to train for, default is 50.
+        :param batch_size: Batch size for training, default is 256.
+        :param verbose: Verbosity mode, 0 = silent, 1 = progress bar, 2 = one line per epoch. Default is 1.
+        :param callbacks: List of callbacks to apply during training, default is None.
+        :param plot: Boolean, whether to plot metrics after training, default is True.
+        :param log_dir: Directory for saving logs and model weights, default is './logs'.
+        :return: History object containing training/validation loss and metric values.
+        """
+        return super().fit(x_train, x_train, x_val if x_val is not None else x_train,
+                           y_val if y_val is not None else x_val, epochs, batch_size, verbose,
+                           callbacks, plot, log_dir, experiment_name)
 
     def get_encoder(self):
         """Return the encoder model with the currently loaded weights."""
-        if self.autoencoder is None:
+        if self.model is None:
             raise ValueError("No weights have been loaded. Load weights before extracting the encoder architecture.")
         encoder = Model(self.model.input, self.model.layers[len(self.encoder_filters) * 2 - 1].output)
         return encoder
 
-    def get_encoder_arch(self, model_path):
+    def get_encoder_by_path(self, model_path):
         """Return the encoder model with the currently loaded weights."""
         encoder = tf.keras.models.load_model(model_path)
         encoder = Model(encoder.input, encoder.layers[len(self.encoder_filters) * 2 - 1].output)
         return encoder
-
-# Usage:
-# cae = ConvolutionalAutoencoder()
-# cae.compile()
-# cae.fit(x_train, x_test)
