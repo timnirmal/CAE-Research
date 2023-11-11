@@ -146,6 +146,8 @@ class BaseModel:
         Load the model from the given path.
         :param model_path: Path for loading the model.
         """
+        if not os.path.exists(model_path):
+            raise ValueError(f"Model file {model_path} does not exist.")
         self.model = tf.keras.models.load_model(model_path)
 
     def load_weights(self, model_path):
@@ -153,4 +155,6 @@ class BaseModel:
         Load the model weights from the given path.
         :param model_path: Path for loading the model weights.
         """
+        if not os.path.exists(model_path):
+            raise ValueError(f"Model weights file {model_path} does not exist.")
         self.model.load_weights(model_path)

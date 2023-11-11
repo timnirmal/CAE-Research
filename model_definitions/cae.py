@@ -100,7 +100,17 @@ class ConvolutionalAutoencoder(BaseModel):
         return encoder
 
     def get_encoder_by_path(self, model_path):
-        """Return the encoder model with the currently loaded weights."""
-        encoder = tf.keras.models.load_model(model_path)
-        encoder = Model(encoder.input, encoder.layers[len(self.encoder_filters) * 2 - 1].output)
+        """
+        Create an instance of the ConvolutionalAutoencoder and load the saved weights.
+        Then, return the encoder part of the model.
+        :param model_path: Path to the saved weights.
+        :return: Encoder model.
+        """
+        # First, create an instance of ConvolutionalAutoencoder with the same architecture
+        temp_cae = ConvolutionalAutoencoder(input_shape=self.input_shape)
+        # Load the saved weights into this model
+        temp_cae.load_weights(model_path)
+
+        # Extract the encoder part from this model
+        encoder = Model(temp_cae.model.input, temp_cae.model.layers[len(temp_cae.encoder_filters) * 2 - 1].output)
         return encoder
