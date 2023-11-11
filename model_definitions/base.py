@@ -6,6 +6,11 @@ import mlflow.keras
 import tensorflow as tf
 from keras.callbacks import TensorBoard, ModelCheckpoint, EarlyStopping
 
+from sklearn.metrics import classification_report, confusion_matrix, accuracy_score
+import numpy as np
+import seaborn as sns
+from sklearn.metrics import roc_curve, auc
+
 
 def plot_metrics(history, log_dir, save=True, show=False):
     """
@@ -32,6 +37,94 @@ def plot_metrics(history, log_dir, save=True, show=False):
     if show:
         plt.show()
     return plot_path
+
+
+def manual_evaluate(model, x_test, y_test, loss_fn, batch_size=32):
+    """
+    Manually evaluate the given model on the provided test data and labels.
+
+    :param model: The loaded TensorFlow/Keras model to be evaluated.
+    :param x_test: Test data (features).
+    :param y_test: Test data labels.
+    :param loss_fn: Loss function to use for evaluation.
+    :param batch_size: Batch size for evaluation, default is 32.
+    :return: Calculated loss over the test data.
+    """
+    # Initialize metrics
+    test_loss = 0
+    total_samples = len(x_test)
+
+    # Process the dataset in batches
+    for i in range(0, total_samples, batch_size):
+        x_batch = x_test[i:i + batch_size]
+        y_batch = y_test[i:i + batch_size]
+
+        # Get model predictions
+        y_pred = model.predict(x_batch)
+
+        # Calculate loss for the batch
+        batch_loss = loss_fn(y_batch, y_pred)
+        test_loss += batch_loss * len(x_batch)
+
+    # Average loss over all batches
+    average_loss = test_loss / total_samples
+
+    return average_loss
+
+
+def generate_classification_report(y_true, y_pred):
+    """
+    Generate a classification report.
+
+    :param y_true: True labels.
+    :param y_pred: Predicted labels.
+    :return: Text report showing the main classification metrics.
+    """
+    report = classification_report(y_true, y_pred)
+    accuracy = accuracy_score(y_true, y_pred)
+    print("Accuracy:", accuracy)
+    print("Classification Report:")
+    print(report)
+
+    return report
+
+
+def plot_confusion_matrix(y_true, y_pred, classes):
+    """
+    Plot the confusion matrix.
+
+    :param y_true: True labels.
+    :param y_pred: Predicted labels.
+    :param classes: List of class names.
+    """
+    cm = confusion_matrix(y_true, y_pred)
+    plt.figure(figsize=(10, 7))
+    sns.heatmap(cm, annot=True, fmt='g', xticklabels=classes, yticklabels=classes)
+    plt.xlabel('Predicted')
+    plt.ylabel('True')
+    plt.show()
+
+
+def plot_roc_curve(y_true, y_scores):
+    """
+    Plot ROC curve for binary classification.
+
+    :param y_true: True binary labels.
+    :param y_scores: Target scores, probability estimates of the positive class.
+    """
+    fpr, tpr, thresholds = roc_curve(y_true, y_scores)
+    roc_auc = auc(fpr, tpr)
+
+    plt.figure()
+    plt.plot(fpr, tpr, color='darkorange', lw=2, label=f'ROC curve (area = {roc_auc:.2f})')
+    plt.plot([0, 1], [0, 1], color='navy', lw=2, linestyle='--')
+    plt.xlim([0.0, 1.0])
+    plt.ylim([0.0, 1.05])
+    plt.xlabel('False Positive Rate')
+    plt.ylabel('True Positive Rate')
+    plt.title('Receiver Operating Characteristic')
+    plt.legend(loc="lower right")
+    plt.show()
 
 
 class BaseModel:
@@ -112,14 +205,28 @@ class BaseModel:
         """
         return self.model.predict(x_test)
 
-    def evaluate(self, x_test, y_test):
+    def custom_evaluate(self, model, x_test, y_test, batch_size=32):
         """
-        Evaluate the model on the given test data.
-        :param x_test: Test data features.
+        Evaluate the given model on the provided test data and labels.
+
+        :param model: The loaded TensorFlow/Keras model to be evaluated.
+        :param x_test: Test data (features).
         :param y_test: Test data labels.
-        :return: Evaluation metrics.
+        :param batch_size: Batch size for evaluation, default is 32.
+        :return: A dictionary containing the loss and each metric's name and its value.
         """
-        return self.model.evaluate(x_test, y_test)
+        # Ensure the model is compiled
+        if not model._is_compiled:
+            raise ValueError("The model must be compiled before evaluation.")
+
+        # Perform evaluation
+        loss, *metrics = model.evaluate(x_test, y_test, batch_size=batch_size)
+
+        # Retrieve metric names
+        metric_names = ['loss'] + [m.name for m in model.metrics]
+
+        # Return results as a dictionary
+        return dict(zip(metric_names, [loss] + metrics))
 
     def summary(self):
         """

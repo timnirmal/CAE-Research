@@ -1,0 +1,374 @@
+######################## Base Class ##############################
+
+
+import os
+
+import matplotlib.pyplot as plt
+import mlflow
+import mlflow.keras
+import tensorflow as tf
+from keras.callbacks import TensorBoard, ModelCheckpoint, EarlyStopping
+
+
+def plot_metrics(history, log_dir, save=True, show=False):
+    """
+    Plot training and validation metrics.
+    :param history: History object containing training/validation loss and metric values.
+    :param log_dir: Directory for saving the plot.
+    :param save: Boolean, whether to save the plot, default is True.
+    :param show: Boolean, whether to show the plot, default is False.
+    :return: Path where the plot is saved.
+    """
+    fig, axs = plt.subplots(1, 2, figsize=(12, 6))
+
+    axs[0].plot(history.history['loss'])
+    axs[0].plot(history.history['val_loss'])
+    axs[0].set_title('Model loss')
+    axs[0].set_ylabel('Loss')
+    axs[0].set_xlabel('Epoch')
+    axs[0].legend(['Train', 'Validation'], loc='upper left')
+
+    plot_path = os.path.join(log_dir, 'training_metrics.png')
+    if save:
+        plot_path = os.path.join(log_dir, 'training_metrics.png')
+        plt.savefig(plot_path)
+    if show:
+        plt.show()
+    return plot_path
+
+
+class BaseModel:
+    def __init__(self, input_shape):
+        """
+        Initialize the BaseModel with the given input shape.
+        :param input_shape: Tuple specifying the shape of input data.
+        """
+        self.input_shape = input_shape
+        self.model = None  # to be defined by subclasses
+
+    def compile(self, optimizer='adam', loss='binary_crossentropy', metrics=None):
+        """
+        Compile the model with the given optimizer and loss function.
+        :param optimizer: String or optimizer instance, default is 'adam'.
+        :param loss: String or loss instance, default is 'binary_crossentropy'.
+        """
+        if metrics is None:
+            self.model.compile(optimizer=optimizer, loss=loss)
+        else:
+            self.model.compile(optimizer=optimizer, loss=loss, metrics=metrics)
+
+    def fit(self, x_train, y_train, x_val=None, y_val=None, epochs=50, batch_size=256, verbose=1,
+            callbacks=None, plot=True, log_dir='./logs', experiment_name='experiment'):
+        """
+        Fit the model to the training data and validate on the validation data if provided.
+        :param x_train: Training data features.
+        :param y_train: Training data labels.
+        :param x_val: Validation data features, default is None.
+        :param y_val: Validation data labels, default is None.
+        :param epochs: Number of epochs to train for, default is 50.
+        :param batch_size: Batch size for training, default is 256.
+        :param verbose: Verbosity mode, 0 = silent, 1 = progress bar, 2 = one line per epoch. Default is 1.
+        :param callbacks: List of callbacks to apply during training, default is None.
+        :param plot: Boolean, whether to plot metrics after training, default is True.
+        :param log_dir: Directory for saving logs and model weights, default is './logs'.
+        :param experiment_name: Name of the MLFlow experiment, default is 'experiment'.
+        :return: History object containing training/validation loss and metric values.
+        """
+        if not os.path.exists(log_dir):
+            os.makedirs(log_dir)
+
+        tensorboard = TensorBoard(log_dir=log_dir, histogram_freq=1)
+        checkpoint = ModelCheckpoint(filepath=os.path.join(log_dir, 'model_best_weights.h5'),
+                                     save_best_only=True, save_weights_only=True)
+        early_stopping = EarlyStopping(patience=10)
+
+        default_callbacks = [tensorboard, checkpoint, early_stopping]
+        if callbacks:
+            default_callbacks.extend(callbacks)
+
+        validation_data = (x_val, y_val) if x_val is not None and y_val is not None else None
+
+        mlflow.set_experiment(experiment_name)
+        with mlflow.start_run():
+            history = self.model.fit(x_train, y_train, epochs=epochs, batch_size=batch_size, shuffle=True,
+                                     validation_data=validation_data, verbose=verbose, callbacks=default_callbacks)
+
+            for epoch, metrics in enumerate(zip(history.history['loss'], history.history.get('val_loss', []))):
+                train_loss, val_loss = metrics
+                mlflow.log_metric('train_loss', train_loss, step=epoch)
+                if val_loss:
+                    mlflow.log_metric('val_loss', val_loss, step=epoch)
+
+            if plot:
+                plot_path = plot_metrics(history, log_dir)
+                mlflow.log_artifact(plot_path)
+
+            mlflow.keras.log_model(self.model, "models")
+
+        return history
+
+    def predict(self, x_test):
+        """
+        Make predictions on the given test data.
+        :param x_test: Test data features.
+        :return: Predictions.
+        """
+        return self.model.predict(x_test)
+
+    def evaluate(self, x_test, y_test):
+        """
+        Evaluate the model on the given test data.
+        :param x_test: Test data features.
+        :param y_test: Test data labels.
+        :return: Evaluation metrics.
+        """
+        return self.model.evaluate(x_test, y_test)
+
+    def summary(self):
+        """
+        Print the summary of the model.
+        """
+        self.model.summary()
+
+    def save_model(self, model_path):
+        """
+        Save the model to the given path.
+        :param model_path: Path for saving the model.
+        """
+        self.model.save(model_path)
+
+    def save_weights(self, model_path):
+        """
+        Save the model weights to the given path.
+        :param model_path: Path for saving the model weights.
+        """
+        self.model.save_weights(model_path)
+
+    def load_model(self, model_path):
+        """
+        Load the model from the given path.
+        :param model_path: Path for loading the model.
+        """
+        if not os.path.exists(model_path):
+            raise ValueError(f"Model file {model_path} does not exist.")
+        self.model = tf.keras.models.load_model(model_path)
+
+    def load_weights(self, model_path):
+        """
+        Load the model weights from the given path.
+        :param model_path: Path for loading the model weights.
+        """
+        if not os.path.exists(model_path):
+            raise ValueError(f"Model weights file {model_path} does not exist.")
+        self.model.load_weights(model_path)
+
+
+####################### Convolutional Autoencoder ##############################
+
+import tensorflow as tf
+from keras.layers import Conv2D, MaxPooling2D, UpSampling2D, Input
+from keras.models import Model
+from model_definitions.base import BaseModel
+
+
+class ConvolutionalAutoencoder(BaseModel):
+    def __init__(self, input_shape=(28, 28, 1), encoder_filters=None, decoder_filters=None,
+                 kernel_size=(3, 3), pooling_size=(2, 2), upsampling_size=(2, 2),
+                 activation='relu', initializer='glorot_uniform'):
+        """
+        Initialize the ConvolutionalAutoencoder with the given parameters.
+        :param input_shape: Tuple specifying the shape of input data, default is (28, 28, 1).
+        :param encoder_filters: List of integers specifying the number of filters for each Conv2D layer in the encoder,
+                                default is [32, 64].
+        :param decoder_filters: List of integers specifying the number of filters for each Conv2D layer in the decoder,
+                                default is [64, 32].
+        :param kernel_size: Tuple specifying the kernel size for Conv2D layers, default is (3, 3).
+        :param pooling_size: Tuple specifying the pool size for MaxPooling2D layers, default is (2, 2).
+        :param upsampling_size: Tuple specifying the size for UpSampling2D layers, default is (2, 2).
+        :param activation: Activation function to use, default is 'relu'.
+        :param initializer: Initializer for the kernel weights, default is 'glorot_uniform'.
+        """
+        super().__init__(input_shape)
+        if decoder_filters is None:
+            decoder_filters = [64, 32]
+        if encoder_filters is None:
+            encoder_filters = [32, 64]
+        if len(input_shape) != 3:
+            raise ValueError("Input shape should have three dimensions (height, width, channels).")
+
+        self.encoder_filters = encoder_filters
+        self.decoder_filters = decoder_filters
+        self.kernel_size = kernel_size
+        self.pooling_size = pooling_size
+        self.upsampling_size = upsampling_size
+        self.activation = activation
+        self.initializer = initializer
+
+        self.model = self.build_autoencoder()
+
+    def build_encoder(self, x):
+        """
+        Build the encoder portion of the autoencoder.
+        :param x: Input tensor.
+        :return: Tensor representing the encoded features.
+        """
+        for filters in self.encoder_filters:
+            x = Conv2D(filters, self.kernel_size, activation=self.activation,
+                       padding='same', kernel_initializer=self.initializer)(x)
+            x = MaxPooling2D(self.pooling_size, padding='same')(x)
+        return x
+
+    def build_decoder(self, x):
+        """
+        Build the decoder portion of the autoencoder.
+        :param x: Encoded input tensor.
+        :return: Tensor representing the decoded output.
+        """
+        for filters in reversed(self.decoder_filters):
+            x = Conv2D(filters, self.kernel_size, activation=self.activation,
+                       padding='same', kernel_initializer=self.initializer)(x)
+            x = UpSampling2D(self.upsampling_size)(x)
+        return x
+
+    def build_autoencoder(self):
+        """
+        Build the autoencoder using the encoder and decoder.
+        :return: Autoencoder model.
+        """
+        input_img = Input(shape=self.input_shape)
+        encoded = self.build_encoder(input_img)
+        decoded = self.build_decoder(encoded)
+        autoencoder = Model(input_img, decoded)
+        return autoencoder
+
+    def fit(self, x_train, y_train, x_val=None, y_val=None, epochs=50, batch_size=256, verbose=1,
+            callbacks=None, plot=True, log_dir='./logs', experiment_name='experiment'):
+        """
+        Fit the autoencoder model to the training data.
+        :param x_train: Training data.
+        :param x_val: Validation data.
+        :param epochs: Number of epochs to train for, default is 50.
+        :param batch_size: Batch size for training, default is 256.
+        :param verbose: Verbosity mode, 0 = silent, 1 = progress bar, 2 = one line per epoch. Default is 1.
+        :param callbacks: List of callbacks to apply during training, default is None.
+        :param plot: Boolean, whether to plot metrics after training, default is True.
+        :param log_dir: Directory for saving logs and model weights, default is './logs'.
+        :return: History object containing training/validation loss and metric values.
+        """
+        return super().fit(x_train, x_train, x_val if x_val is not None else x_train,
+                           y_val if y_val is not None else x_val, epochs, batch_size, verbose,
+                           callbacks, plot, log_dir, experiment_name)
+
+    def get_encoder(self):
+        """Return the encoder model with the currently loaded weights."""
+        if self.model is None:
+            raise ValueError("No weights have been loaded. Load weights before extracting the encoder architecture.")
+        encoder = Model(self.model.input, self.model.layers[len(self.encoder_filters) * 2 - 1].output)
+        return encoder
+
+    def get_encoder_by_path(self, model_path):
+        """
+        Create an instance of the ConvolutionalAutoencoder and load the saved weights.
+        Then, return the encoder part of the model.
+        :param model_path: Path to the saved weights.
+        :return: Encoder model.
+        """
+        # First, create an instance of ConvolutionalAutoencoder with the same architecture
+        temp_cae = ConvolutionalAutoencoder(input_shape=self.input_shape)
+        # Load the saved weights into this model
+        temp_cae.load_weights(model_path)
+
+        # Extract the encoder part from this model
+        encoder = Model(temp_cae.model.input, temp_cae.model.layers[len(temp_cae.encoder_filters) * 2 - 1].output)
+        return encoder
+
+
+####################### Convolutional Neural Network ##############################
+
+from keras.layers import Conv2D, MaxPooling2D, Flatten, Dense, Input
+from keras.models import Model
+from model_definitions.base import BaseModel
+
+
+class ConvolutionalNeuralNetwork(BaseModel):
+    def __init__(self, input_shape=(28, 28, 1), conv_filters=None, kernel_size=(3, 3),
+                 pooling_size=(2, 2), dense_units=None, num_classes=10,
+                 activation='relu', initializer='glorot_uniform'):
+        """
+        Initialize the ConvolutionalNeuralNetwork with the given parameters.
+        :param input_shape: Tuple specifying the shape of input data, default is (28, 28, 1).
+        :param conv_filters: List of integers specifying the number of filters for each Conv2D layer,
+                             default is [32, 64].
+        :param kernel_size: Tuple specifying the kernel size for Conv2D layers, default is (3, 3).
+        :param pooling_size: Tuple specifying the pool size for MaxPooling2D layers, default is (2, 2).
+        :param dense_units: List of integers specifying the number of units for each Dense layer,
+                            default is [64].
+        :param num_classes: Integer, number of classes for classification, default is 10.
+        :param activation: Activation function to use, default is 'relu'.
+        :param initializer: Initializer for the kernel weights, default is 'glorot_uniform'.
+        """
+        super().__init__(input_shape)
+        if dense_units is None:
+            dense_units = [64]
+        if conv_filters is None:
+            conv_filters = [32, 64]
+
+        self.conv_filters = conv_filters
+        self.kernel_size = kernel_size
+        self.pooling_size = pooling_size
+        self.dense_units = dense_units
+        self.num_classes = num_classes
+        self.activation = activation
+        self.initializer = initializer
+
+        self.model = self.build_cnn()
+
+    def build_cnn(self):
+        """
+        Build the Convolutional Neural Network.
+        :return: CNN model.
+        """
+        input_img = Input(shape=self.input_shape)
+        x = input_img
+        for filters in self.conv_filters:
+            x = Conv2D(filters, self.kernel_size, activation=self.activation,
+                       kernel_initializer=self.initializer)(x)
+            x = MaxPooling2D(self.pooling_size)(x)
+
+        x = Flatten()(x)
+        for units in self.dense_units:
+            x = Dense(units, activation=self.activation,
+                      kernel_initializer=self.initializer)(x)
+
+        output = Dense(self.num_classes, activation='softmax')(x)
+
+        cnn_model = Model(input_img, output)
+        return cnn_model
+
+    def fit(self, x_train, y_train, x_val=None, y_val=None, epochs=10, batch_size=64, verbose=1,
+            callbacks=None, plot=True, log_dir='./logs', experiment_name='cnn_experiment'):
+        """
+        Fit the CNN model to the training data and validate on the validation data if provided.
+        :param x_train: Training data features.
+        :param y_train: Training data labels.
+        :param x_val: Validation data features, default is None.
+        :param y_val: Validation data labels, default is None.
+        :param epochs: Number of epochs to train for, default is 10.
+        :param batch_size: Batch size for training, default is 64.
+        :param verbose: Verbosity mode, 0 = silent, 1 = progress bar, 2 = one line per epoch. Default is 1.
+        :param callbacks: List of callbacks to apply during training, default is None.
+        :param plot: Boolean, whether to plot metrics after training, default is True.
+        :param log_dir: Directory for saving logs and model weights, default is './logs'.
+        :param experiment_name: Name of the MLFlow experiment, default is 'cnn_experiment'.
+        :return: History object containing training/validation loss and metric values.
+        """
+        return super().fit(x_train, y_train, x_val, y_val, epochs, batch_size, verbose,
+                           callbacks, plot, log_dir, experiment_name)
+
+
+
+
+
+
+
+Above is all the classes I have now. Just remember them and forgot everything else. I will later tell you what to do with them.
